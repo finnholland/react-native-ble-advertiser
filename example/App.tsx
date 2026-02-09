@@ -16,44 +16,12 @@ import { NativeEventEmitter, NativeModules } from 'react-native';
 import 'react-native-get-random-values';
 import BLEAdvertiser from 'react-native-ble-advertiser';
 import { v4 as uuid } from 'uuid'
-import { requestMultiple, PERMISSIONS } from 'react-native-permissions';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { requestLocationPermission } from './getPermissions';
 
-// Uses the Apple code to pick up iPhones
-const APPLE_ID = 0x4c;
-const SCAN_MANUF_DATA = [1, 0];
+const SCAN_MANUF_DATA = Platform.OS === 'android' ? null : [1, 0];
 
-BLEAdvertiser.setCompanyId(APPLE_ID);
-
-export async function requestLocationPermission() {
-  try {
-    if (Platform.OS === 'android') {
-      const granted = await requestMultiple([PERMISSIONS.ANDROID.BLUETOOTH_SCAN, PERMISSIONS.ANDROID.BLUETOOTH_ADVERTISE]).then((statuses) => {
-        return statuses[PERMISSIONS.ANDROID.BLUETOOTH_SCAN] && statuses[PERMISSIONS.ANDROID.BLUETOOTH_ADVERTISE]
-      });
-      if (granted) console.log('granted')
-      else console.log('not granted')
-    }
-
-    const blueoothActive = await BLEAdvertiser.getAdapterState()
-      .then((result: string) => {
-        console.log('[Bluetooth]', 'Bluetooth Status', result);
-        return result === 'STATE_ON';
-      })
-      .catch((error: string) => {
-        console.log('[Bluetooth]', 'Bluetooth Not Enabled');
-        return false;
-      });
-
-    if (!blueoothActive) {
-      await Alert.alert(
-        'Example requires bluetooth to be enabled',
-      )
-    }
-  } catch (err) {
-    console.warn(err);
-  }
-}
+BLEAdvertiser.setCompanyId(0x8101);
 
 function short(str: string) {
   return (
@@ -67,7 +35,7 @@ type Device = {
   uuid: string,
   name: string,
   mac: string,
-  rssi: string,
+  rssi: number,
   start: Date,
   end: Date,
 }
@@ -77,12 +45,25 @@ const App = () => {
   const [isLogging, setIsLogging] = useState(false)
   const [devicesFound, setDevicesFound] = useState<Device[]>([])
 
+  const [btAllowed, setBtAllowed] = useState(true)
+
+  // Check if bluetooth is allowed by the user
+  const checkBt = () => {
+    requestLocationPermission().then(res => {
+      setBtAllowed(res);
+    })
+  }
   useEffect(() => {
-    requestLocationPermission();
+    checkBt()
     setMyUuid(uuid().slice(0, -6) + '00b2b2')
     return () => { if (isLogging) stop() }
   }, [])
 
+  if (!btAllowed) return (
+    <SafeAreaView>
+      <Text>Please allow bluetooth to use BLE</Text>
+    </SafeAreaView>
+  )
 
   function addDevice(device: Device) {
     const index = devicesFound.findIndex(({ uuid }) => uuid === device.uuid);
@@ -101,20 +82,18 @@ const App = () => {
     }
   }
   const start = () => {
-    console.log(myUuid, 'Registering Listener');
     const eventEmitter = new NativeEventEmitter(NativeModules.BLEAdvertiser);
 
     onDeviceFound = eventEmitter.addListener('onDeviceFound', (event) => {
-      console.log('onDeviceFound', event);
-      if (event.serviceUuids) {
+      if (event.serviceUuids) { // if the found device HAS a service uuid that matches 00b2b2 we add it 
         for (let i = 0; i < event.serviceUuids.length; i++) {
-          if (event.serviceUuids[i] && event.serviceUuids[i].endsWith('00b2b2')) {
+          if (event.serviceUuids[i] && event.serviceUuids[i].toLowerCase().endsWith('00b2b2')) {
             addDevice(
               {
-                uuid: event.serviceUuids[i],
+                uuid: event.serviceUuids[i].toLowerCase(),
                 name: event.deviceName,
                 mac: event.deviceAddress,
-                rssi: event.rssi,
+                rssi: parseInt(event.rssi),
                 start: new Date(),
                 end: new Date(),
               }
@@ -124,9 +103,8 @@ const App = () => {
       }
     });
 
-    console.log('state: ', onDeviceFound)
-    console.log(uuid, 'Starting Advertising');
-    BLEAdvertiser.broadcast(myUuid, SCAN_MANUF_DATA, {
+    // broadcast with the serviceId of the user's uuid and the manuf data of [1,0] so that android can be seen by iOS
+    BLEAdvertiser.broadcast(myUuid, [1, 0], {
       advertiseMode: BLEAdvertiser.ADVERTISE_MODE_BALANCED,
       txPowerLevel: BLEAdvertiser.ADVERTISE_TX_POWER_MEDIUM,
       connectable: false,
@@ -136,7 +114,7 @@ const App = () => {
       .then((sucess: string) => console.log(uuid, 'Adv Successful', sucess))
       .catch((error: string) => console.log(uuid, 'Adv Error', error));
 
-    console.log(uuid, 'Starting Scanner');
+    // scan for manuf data null allows android to see iOS otherwise [1,0]
     BLEAdvertiser.scan(SCAN_MANUF_DATA, {
       scanMode: BLEAdvertiser.SCAN_MODE_LOW_LATENCY,
     })
@@ -198,10 +176,10 @@ const App = () => {
         <View style={styles.sectionContainerFlex}>
           <Text style={styles.sectionTitle}>Devices Around</Text>
           <FlatList
-            data={devicesFound}
+            data={devicesFound.sort((a, b) => b.rssi - a.rssi)}
             renderItem={({ item }) => (
               <Text style={styles.itemPastConnections}>
-                {short(item.uuid)} {item.mac} {item.rssi}
+                {short(item.uuid)} {item.rssi} {item.mac}
               </Text>
             )}
             keyExtractor={(item) => item.uuid}
@@ -223,6 +201,8 @@ const App = () => {
 const styles = StyleSheet.create({
   body: {
     height: '100%',
+    backgroundColor: '#fff',
+    paddingTop: Platform.OS === 'ios' ? 50 : 0
   },
   sectionContainerFlex: {
     flex: 1,
@@ -233,7 +213,7 @@ const styles = StyleSheet.create({
   sectionContainer: {
     flex: 0,
     marginTop: 12,
-    marginBottom: 12,
+    marginBottom: 40,
     paddingHorizontal: 24,
   },
   sectionTitle: {
