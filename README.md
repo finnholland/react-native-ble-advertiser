@@ -180,6 +180,9 @@ onBTStatusChange = eventEmitter.addListener('onBTStatusChange', (enabled) => {
 
 ## Developing
 
+I recommend using yalc (it's just handy in general)
+`npm i -g yalc`
+
 1. Fork the repo to your GitHub user. 
 
 2. Clone to your computer.
@@ -191,7 +194,7 @@ git clone https://github.com/vitorpamplona/react-native-ble-advertiser.git
 3. Use the script to repack the lib into the example folder and start the app in a connected device (avoid emulators).
 
 ```bash
-./repack.sh <android,ios> <devicename>
+yalc publish && cd example && yalc add react-native-ble-advertiser@0.1.0
 ```
 
 4. If you only change the Example files, you can re-run the example with the usual
@@ -204,17 +207,17 @@ Pull requests are welcome :)
 
 ### Manual execution
 
-1. Build the library with npm pack
+1. Build the library with yalc
 
 ```bash
-npm pack
+yalc publish #publishes to local yalc repo
 ```
 
 2. Install your build on the example app.
 
 ```bash
 cd example
-npm i $NPMFILE
+yalc add react-native-ble-advertiser@0.1.0
 ```
 
 3. Update pods 
